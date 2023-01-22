@@ -1,0 +1,339 @@
+/*
+ * stopwatch01.c
+ *
+ *  Created on: Sep 15, 2022
+ *      Author: Mahmoud Qotp
+ */
+#define STOPWATCH_MODE_SOFTWARE_SOLUTION 1
+#define CLOCK_MODE_SOFTWARE_SOLUTION 0
+#define ALARM_MODE_SOFTWARE_SOLUTION 0
+#define MODE_SWAP_HARDWARE_SOLUTION 1
+#define CLOCK_SETTING_HARDWARE_SOLUTION 1
+//#define ALARM_MODE_HARDWARE_SOLUTION 0
+#define MAX_SEC_LOW 9
+#define MAX_SEC_HIGH 5
+#define MAX_MIN_LOW 9
+#define MAX_MIN_HIGH 5
+#define MAX_HOURS_LOW 9
+#define MAX_HOURS_HIGH 9
+
+#include <avr/io.h>
+#include <avr/interrupt.h>
+#include <util/delay.h>
+
+unsigned char g_secL = 0, g_secH = 0, g_minL = 0, g_minH = 0, g_hrL = 0, g_hrH = 0;
+
+#if ALARM_MODE_SOFTWARE_SOLUTION
+unsigned char g_alarmingTimeSecs = 10, g_alarmHrs = 0, g_alarmMins = 0, g_alarmSecs = 5, g_tempFlagSWAlarm = 0;
+unsigned long g_flagSWAlarm = 0;
+#endif
+
+#if MODE_SWAP_HARDWARE_SOLUTION
+unsigned char g_modeSwap = 0, g_modeSwapFlag = 0, g_tempModeSwap = 0;
+#endif
+
+#if CLOCK_SETTING_HARDWARE_SOLUTION
+unsigned char g_clockSettingHourFlag = 0, g_clockSettingMinFlag = 0;
+#endif
+
+ISR(TIMER1_COMPA_vect)
+{
+#if ALARM_MODE_SOFTWARE_SOLUTION
+	g_flagSWAlarm++;
+	if (g_flagSWAlarm == ((g_alarmHrs * 60 * 60) + (g_alarmMins * 60) + (g_alarmSecs)))
+	{
+		PORTC |= (1<<6);
+		g_flagSWAlarm--;
+		g_tempFlagSWAlarm++;
+		if (g_tempFlagSWAlarm % (g_alarmingTimeSecs) == 0)
+		{
+			PORTC &=~ (1<<6);
+			g_tempFlagSWAlarm = 0;
+			g_flagSWAlarm++;
+		}
+	}
+
+#endif
+
+	if (g_secL == MAX_SEC_LOW)
+	{
+		if(g_secH == MAX_SEC_HIGH)
+		{
+			if(g_minL == MAX_MIN_LOW)
+			{
+				if(g_minH == MAX_MIN_HIGH)
+				{
+					if(g_hrL == MAX_HOURS_LOW)
+					{
+#if STOPWATCH_MODE_SOFTWARE_SOLUTION
+						if(g_hrH == MAX_HOURS_HIGH)
+						{
+							//Overflow Occurs
+							PORTC ^= (1<<7); //Toggle the small led in the display.
+							g_secL = 0;
+							g_secH = 0;
+							g_minL = 0;
+							g_minH = 0;
+							g_hrL = 0;
+							g_hrH = 0;
+#if ALARM_MODE_SOFTWARE_SOLUTION
+							g_flagSWAlarm = 0;
+#endif
+						}
+						else
+						{
+							g_hrH++;
+						}
+#endif
+
+#if CLOCK_MODE_SOFTWARE_SOLUTION
+						g_hrH++;
+#endif
+
+						g_hrL = 0;
+					}
+
+#if CLOCK_MODE_SOFTWARE_SOLUTION
+					/*this else if part makes the nested if condition inside the previous if dummy,
+					 * as it will never achieve the condition, but we are going to avoid useless cases
+					 * to be sure that our code is BUG FREE as possible.
+					*/
+					else if(g_hrL == 1 && g_hrH == 1)
+					{
+						//Overflow Occurs
+						PORTC ^= (1<<7); //Toggle the small led in the display.
+						g_secL = 0;
+						g_secH = 0;
+						g_minL = 0;
+						g_minH = 0;
+						g_hrL = 0;
+						g_hrH = 0;
+#if ALARM_MODE_SOFTWARE_SOLUTION
+							g_flagSWAlarm = 0;
+#endif
+					}
+#endif
+
+#if MODE_SWAP_HARDWARE_SOLUTION
+					/*this else if part makes the nested if condition inside the previous if dummy,
+					 * as it will never achieve the condition, but we are going to avoid useless cases
+					 * to be sure that our code is BUG FREE as possible.
+					*/
+					else if(g_hrL == 1 && g_hrH == 1 && g_modeSwap)
+					{
+						//Overflow Occurs
+						PORTC ^= (1<<7); //Toggle the small led in the display.
+						g_secL = 0;
+						g_secH = 0;
+						g_minL = 0;
+						g_minH = 0;
+						g_hrL = 0;
+						g_hrH = 0;
+#if ALARM_MODE_SOFTWARE_SOLUTION
+							g_flagSWAlarm = 0;
+#endif
+					}
+#endif
+					else
+					{
+						g_hrL++;
+					}
+					g_minH = 0;
+				}
+				else
+				{
+					g_minH++;
+				}
+				g_minL = 0;
+			}
+			else
+			{
+				g_minL++;
+			}
+			g_secH = 0;
+		}
+		else
+		{
+			g_secH++;
+		}
+		g_secL = 0;
+	}
+	else
+	{
+		g_secL++;
+	}
+}
+
+//	If a falling edge detected the Stop Watch time should be reset.
+ISR(INT0_vect)
+{
+	g_secL = 0;
+	g_secH = 0;
+	g_minL = 0;
+	g_minH = 0;
+	g_hrL = 0;
+	g_hrH = 0;
+#if ALARM_MODE_SOFTWARE_SOLUTION
+	g_flagSWAlarm = 0;
+#endif
+
+#if MODE_SWAP_HARDWARE_SOLUTION
+	g_modeSwap = 0;
+#endif
+}
+
+//	If a raising edge detected the Stop Watch time should be paused.
+ISR(INT1_vect)
+{
+	TIMSK &= ~(1<<OCIE1A);
+}
+
+//	If a falling edge detected the Stop Watch time should be resumed.
+ISR(INT2_vect)
+{
+	TIMSK |= (1<<OCIE1A);
+}
+
+void INT0_Init(void)
+{
+	MCUCR|= (1<<ISC01);
+	MCUCR  &= ~(1<<ISC00); //Falling edge
+	GICR |= (1<<INT0); //Interrupt Enable
+	DDRD &= ~(1<<PD2); //Configure PD2 as an INPUT pin
+	PORTD |= (1<<PD2); //Internal Pull Up Resistor
+}
+
+void INT1_Init(void)
+{
+	MCUCR|= (1<<ISC10) | (1<<ISC11); //Rising edge
+	GICR |= (1<<INT1); //Interrupt Enable
+	DDRD &= ~(1<<PD3); //Configure PD3 as an INPUT pin
+}
+
+void INT2_Init(void)
+{
+	MCUCSR &= ~(1<<ISC2); //Falling Edge
+	GICR |= (1<<INT2); //Interrupt Enable
+	DDRB &= ~(1<<PB2);	//Configure PB2 as an INPUT pin
+	PORTB |= (1<<PB2); //Internal Pull Up Resistor
+}
+
+void TIMER1_Init(void)
+{
+	TCCR1A = (1<<FOC1A); //Using non PWM mode
+	TCCR1B = (1<<WGM12) | (1<<CS10) | (1<<CS11); //CTC Mode // Prescaler 64
+	OCR1A = 500; //Maximum Value of the timer //15625 Cycles 15624
+	TIMSK |= (1<<OCIE1A); //Timer Interrupt Enable
+}
+int main(void)
+{
+	DDRC |= 0x8f; //  Configure the first 4-pins in PORTC as OUTPUT pins to be Connected to 7447 decoder.
+	PORTC &= ~(0x8f); //Initially Zero.
+#if ALARM_MODE_SOFTWARE_SOLUTION
+	DDRC |= (1<<6);
+	PORTC &=~(1<<6);
+#endif
+
+#if MODE_SWAP_HARDWARE_SOLUTION
+	DDRC &=~ (1<<5); //INPUT
+	PORTC |= (1<<5); //PULL UP RESISTOR
+#endif
+
+#if CLOCK_SETTING_HARDWARE_SOLUTION
+	DDRD &=~(0x03); //INPUT
+	PORTD |= 0x03; //PULL UP RESISTOR
+#endif
+
+	DDRA |= 0x3f; // Use first 6-pins in PORTA as the enable/disable pins for the six 7-segments.
+	DDRA &= ~(0x3f); //Initially All the six 7 segments are disabled.
+	TIMER1_Init();
+	INT0_Init();
+	INT1_Init();
+	INT2_Init();
+	SREG |= (1<<7); //GIE bit
+
+	while(1)
+	{
+
+#if MODE_SWAP_HARDWARE_SOLUTION
+		if(!(PINC&(1<<5)))
+		{
+			_delay_us(50);
+			if(!(PINC&(1<<5)))
+			{
+				if(g_modeSwapFlag == 0)
+				{
+					g_modeSwap ^= (1<<0);
+					g_modeSwapFlag = 1;
+					if (g_modeSwap)
+					{
+						g_tempModeSwap = g_hrH;
+						g_hrH = (((g_hrH * 10) + g_hrL) % 12) / 10;
+						g_hrL = (((g_tempModeSwap * 10) + g_hrL) % 12) % 10;
+					}
+				}
+			}
+		}
+		else
+		{
+			g_modeSwapFlag = 0;
+		}
+#endif
+
+#if CLOCK_SETTING_HARDWARE_SOLUTION
+		if(!(PIND&(1<<0))) //add 1 hour
+		{
+			_delay_us(50);
+			if(!(PIND&(1<<0)))
+			{
+				if(g_clockSettingHourFlag == 0)
+				{
+					g_hrL++;
+					g_clockSettingHourFlag = 1;
+				}
+			}
+		}
+
+		else
+		{
+			g_clockSettingHourFlag = 0;
+		}
+
+		if(!(PIND&(1<<1))) //add 1 minute
+		{
+			_delay_us(50);
+			if(!(PIND&(1<<1)))
+			{
+				if(g_clockSettingMinFlag == 0)
+				{
+					g_minL++;
+					g_clockSettingMinFlag = 1;
+				}
+			}
+		}
+		else
+		{
+			g_clockSettingMinFlag = 0;
+		}
+#endif
+
+		PORTA = (PORTA & 0xc0) | (1<<0); //Enable SecL
+		PORTC = (PORTC & 0xf0) | (0x0f & g_secL);
+		_delay_us(10); //To make it possible to human eye to capture the change.
+		PORTA = (PORTA & 0xc0) | (1<<1); //Enable SecH
+		PORTC = (PORTC & 0xf0) | (0x0f & g_secH);
+		_delay_us(10);
+		PORTA = (PORTA & 0xc0) | (1<<2); //Enable minL
+		PORTC = (PORTC & 0xf0) | (0x0f & g_minL);
+		_delay_us(10);
+		PORTA = (PORTA & 0xc0) | (1<<3); //Enable minH
+		PORTC = (PORTC & 0xf0) | (0x0f & g_minH);
+		_delay_us(10);
+		PORTA = (PORTA & 0xc0) | (1<<4); //Enable hrL
+		PORTC = (PORTC & 0xf0) | (0x0f & g_hrL);
+		_delay_us(10);
+		PORTA = (PORTA & 0xc0) | (1<<5); //Enable hrH
+		PORTC = (PORTC & 0xf0) | (0x0f & g_hrH);
+		_delay_us(10);
+	}
+}
